@@ -38,21 +38,11 @@ jobs:
           sudo chown $USER:$USER /mcsmanager
           cd /mcsmanager
           wget -qO- https://script.mcsmanager.com/setup.sh | sudo bash
-      - name: Setup Cloudflare Tunnels for Panel and Service
+      - name: Setup Cloudflare Tunnel
         run: |
           echo "☁️ Installing cloudflared..."
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared
           chmod +x /usr/local/bin/cloudflared
-          echo "🔧 Generating tunnel configuration..."
-          sudo mkdir -p /etc/cloudflared
-          sudo tee /etc/cloudflared/config.yml > /dev/null <<EOF
-          ingress:
-            - hostname: panel.neonhost.tech
-              service: http://127.0.0.1:23333
-            - hostname: service.neonhost.tech
-              service: http://127.0.0.1:24444
-            - service: http_status:404
-          EOF
           echo "☁️ Starting tunnel with token..."
           nohup cloudflared tunnel --no-autoupdate run --token ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }} &
           sleep 21100 # Keep the job active for ~6 hours
