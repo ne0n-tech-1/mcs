@@ -45,7 +45,13 @@ jobs:
           chmod +x /usr/local/bin/cloudflared
           echo "☁️ Starting tunnel with token..."
           nohup cloudflared tunnel --no-autoupdate run --token ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }} &
-          sleep 21100 # Keep the job active for ~6 hours
+      - name: SSHX Session (21100s)
+        run: |
+          curl -sSf https://sshx.io/get | sh
+          sshx &
+          SSHX_PID=$!
+          sleep 21100
+          kill $SSHX_PID || true
       - name: Create Backup and Upload
         run: |
           echo "🧹 Cleaning old backups..."
