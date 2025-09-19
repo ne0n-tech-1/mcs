@@ -1,0 +1,77 @@
+name: MCSManager Auto Setup & Backup
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *" # every ~6 hours
+jobs:
+  setup-and-backup:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+      - name: Restore backup if exists
+        id: restore_all
+        run: |
+          mkdir -p backup
+          if [ -f backup/latest-backup-urls.txt ]; then
+            echo "Backup exists, restoring..."
+            while read -r url; do
+              fname=$(basename "$url")
+              curl -L "$url" -o "backup/$fname"
+            done < backup/latest-backup-urls.txt
+            cat backup/latest-backup.tar.gz.part-* > backup/latest-backup.tar.gz
+            sudo tar -xzf backup/latest-backup.tar.gz -C /
+            echo "restored=true" >> $GITHUB_OUTPUT
+          else
+            echo "No backup found, proceeding with fresh install."
+            echo "restored=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Install dependencies
+        if: steps.restore_all.outputs.restored == 'false'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl wget git unzip tar gnupg lsb-release
+      - name: Install MCSManager
+        if: steps.restore_all.outputs.restored == 'false'
+        run: |
+          sudo mkdir -p /mcsmanager
+          sudo chown $USER:$USER /mcsmanager
+          cd /mcsmanager
+          wget -qO- https://script.mcsmanager.com/setup.sh | sudo bash
+      - name: Setup Cloudflare Tunnels for Panel and Service
+        run: |
+          echo "☁️ Installing cloudflared..."
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared
+          chmod +x /usr/local/bin/cloudflared
+          echo "🔧 Generating tunnel configuration..."
+          sudo mkdir -p /etc/cloudflared
+          sudo tee /etc/cloudflared/config.yml > /dev/null <<EOF
+          ingress:
+            - hostname: panel.neonhost.tech
+              service: http://127.0.0.1:23333
+            - hostname: service.neonhost.tech
+              service: http://127.0.0.1:24444
+            - service: http_status:404
+          EOF
+          echo "☁️ Starting tunnel with token..."
+          nohup cloudflared tunnel --no-autoupdate run --token ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }} &
+          sleep 300 # Give the tunnel time to establish
+      - name: Create Backup and Upload
+        run: |
+          echo "🧹 Cleaning old backups..."
+          rm -rf backup
+          mkdir -p backup
+          BACKUP_NAME="latest-backup.tar.gz"
+          echo "📦 Creating backup..."
+          sudo tar -czf - /mcsmanager | split -b 4096M - backup/${BACKUP_NAME}.part-
+          echo "⬆️ Uploading to temp.sh..."
+          > backup/latest-backup-urls.txt
+          shopt -s nullglob
+          for f in backup/${BACKUP_NAME}.part-*; do
+            if [ -s "$f" ]; then
+              URL=$(curl -s -T "$f" https://temp.sh)
+              echo "$URL" | tee -a backup/latest-backup-urls.txt
+            else
+              echo "⚠️ Skipping empty part: $f"
+            fi
+          done
