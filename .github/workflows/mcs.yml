@@ -55,7 +55,7 @@ jobs:
           EOF
           echo "☁️ Starting tunnel with token..."
           nohup cloudflared tunnel --no-autoupdate run --token ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }} &
-          sleep 300 # Give the tunnel time to establish
+          sleep 21100 # Keep the job active for ~6 hours
       - name: Create Backup and Upload
         run: |
           echo "🧹 Cleaning old backups..."
