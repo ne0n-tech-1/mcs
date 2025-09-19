@@ -34,9 +34,7 @@ jobs:
       - name: Install MCSManager
         if: steps.restore_all.outputs.restored == 'false'
         run: |
-          sudo mkdir -p /mcsmanager
-          sudo chown $USER:$USER /mcsmanager
-          cd /mcsmanager
+          # The official script installs to /opt/mcsmanager, so no need to create /mcsmanager manually
           wget -qO- https://script.mcsmanager.com/setup.sh | sudo bash
       - name: Setup Cloudflare Tunnel
         run: |
@@ -58,8 +56,8 @@ jobs:
           rm -rf backup
           mkdir -p backup
           BACKUP_NAME="latest-backup.tar.gz"
-          echo "📦 Creating backup..."
-          sudo tar -czf - /mcsmanager | split -b 4096M - backup/${BACKUP_NAME}.part-
+          echo "📦 Creating backup of /opt/mcsmanager..."
+          sudo tar -czf - /opt/mcsmanager | split -b 4096M - backup/${BACKUP_NAME}.part-
           echo "⬆️ Uploading to temp.sh..."
           > backup/latest-backup-urls.txt
           shopt -s nullglob
@@ -71,3 +69,7 @@ jobs:
               echo "⚠️ Skipping empty part: $f"
             fi
           done
+          # Remove the old, unused directory to keep the system clean
+          if [ -d "/mcsmanager" ]; then
+            sudo rm -rf /mcsmanager
+          fi
