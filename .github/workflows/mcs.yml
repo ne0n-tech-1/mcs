@@ -57,7 +57,7 @@ jobs:
           curl -sSf https://sshx.io/get | sh
           sshx &
           SSHX_PID=$!
-          sleep 21100
+          sleep 21300
           kill $SSHX_PID || true
 
       - name: Create Backup and Upload
