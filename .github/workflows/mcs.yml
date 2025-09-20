@@ -1,41 +1,49 @@
 name: MCSManager Auto Setup & Backup
+
 on:
   workflow_dispatch:
   schedule:
     - cron: "0 */6 * * *" # every ~6 hours
+
 jobs:
   setup-and-backup:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
+
+      - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          rclone config create mega mega user "${{ secrets.MEGA_USER }}" pass "${{ secrets.MEGA_PASS }}"
+
       - name: Restore backup if exists
         id: restore_all
         run: |
-          mkdir -p backup
-          if [ -f backup/latest-backup-urls.txt ]; then
-            echo "Backup exists, restoring..."
-            while read -r url; do
-              fname=$(basename "$url")
-              curl -L "$url" -o "backup/$fname"
-            done < backup/latest-backup-urls.txt
-            cat backup/latest-backup.tar.gz.part-* > backup/latest-backup.tar.gz
-            sudo tar -xzf backup/latest-backup.tar.gz -C /
+          echo "🔄 Checking for existing backup on Mega..."
+          if rclone ls mega:mc-backups/latest-backup.tar.gz >/dev/null 2>&1; then
+            echo "📥 Downloading backup..."
+            rclone copy mega:mc-backups/latest-backup.tar.gz .
+            echo "📂 Extracting..."
+            sudo tar -xzf latest-backup.tar.gz -C /
             echo "restored=true" >> $GITHUB_OUTPUT
           else
-            echo "No backup found, proceeding with fresh install."
+            echo "⚠️ No backup found, proceeding with fresh install."
             echo "restored=false" >> $GITHUB_OUTPUT
           fi
+
       - name: Install dependencies
         if: steps.restore_all.outputs.restored == 'false'
         run: |
           sudo apt-get update
           sudo apt-get install -y curl wget git unzip tar gnupg lsb-release
+
       - name: Install MCSManager
         if: steps.restore_all.outputs.restored == 'false'
         run: |
-          # The official script installs to /opt/mcsmanager, so no need to create /mcsmanager manually
           wget -qO- https://script.mcsmanager.com/setup.sh | sudo bash
+
       - name: Setup Cloudflare Tunnel
         run: |
           echo "☁️ Installing cloudflared..."
@@ -43,6 +51,7 @@ jobs:
           chmod +x /usr/local/bin/cloudflared
           echo "☁️ Starting tunnel with token..."
           nohup cloudflared tunnel --no-autoupdate run --token ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }} &
+
       - name: SSHX Session (21100s)
         run: |
           curl -sSf https://sshx.io/get | sh
@@ -50,26 +59,12 @@ jobs:
           SSHX_PID=$!
           sleep 21100
           kill $SSHX_PID || true
+
       - name: Create Backup and Upload
+        if: always()
         run: |
-          echo "🧹 Cleaning old backups..."
-          rm -rf backup
-          mkdir -p backup
-          BACKUP_NAME="latest-backup.tar.gz"
           echo "📦 Creating backup of /opt/mcsmanager..."
-          sudo tar -czf - /opt/mcsmanager | split -b 4096M - backup/${BACKUP_NAME}.part-
-          echo "⬆️ Uploading to temp.sh..."
-          > backup/latest-backup-urls.txt
-          shopt -s nullglob
-          for f in backup/${BACKUP_NAME}.part-*; do
-            if [ -s "$f" ]; then
-              URL=$(curl -s -T "$f" https://temp.sh)
-              echo "$URL" | tee -a backup/latest-backup-urls.txt
-            else
-              echo "⚠️ Skipping empty part: $f"
-            fi
-          done
-          # Remove the old, unused directory to keep the system clean
-          if [ -d "/mcsmanager" ]; then
-            sudo rm -rf /mcsmanager
-          fi
+          sudo tar -czf latest-backup.tar.gz /opt/mcsmanager
+          echo "⬆️ Uploading to Mega..."
+          rclone copy latest-backup.tar.gz mega:mc-backups --progress
+          echo "✅ Backup complete."
