@@ -16,7 +16,7 @@ jobs:
         run: |
           curl https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
-          rclone config create mega mega user "${{ secrets.MEGA_USER }}" pass "${{ secrets.MEGA_PASS }}"
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
 
       - name: Restore backup if exists
         id: restore_all
